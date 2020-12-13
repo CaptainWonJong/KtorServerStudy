@@ -1,52 +1,69 @@
 package com.wonjong.lee
 
+import com.wonjong.lee.config.SimpleJwt
+import com.wonjong.lee.exception.InvalidCredentialsException
+import com.wonjong.lee.model.AccountVo
+import com.wonjong.lee.model.ExceptionVo
+import com.wonjong.lee.model.SnippetVo
 import io.ktor.application.*
-import io.ktor.response.*
-import io.ktor.request.*
-import io.ktor.routing.*
+import io.ktor.auth.*
+import io.ktor.auth.jwt.*
+import io.ktor.features.*
+import io.ktor.gson.*
 import io.ktor.http.*
-import io.ktor.html.*
-import kotlinx.html.*
-import kotlinx.css.*
-import io.ktor.client.*
-import io.ktor.client.engine.apache.*
-import io.ktor.client.features.*
-import io.ktor.client.features.auth.*
-import io.ktor.client.features.json.*
-import io.ktor.client.request.*
-import kotlinx.coroutines.*
-import io.ktor.client.features.logging.*
-import io.ktor.client.features.UserAgent
-import io.ktor.client.features.BrowserUserAgent
+import io.ktor.request.*
+import io.ktor.response.*
+import io.ktor.routing.*
+import org.slf4j.event.Level
+import java.util.*
 
 fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
 
 @Suppress("unused") // Referenced in application.conf
 @kotlin.jvm.JvmOverloads
 fun Application.module(testing: Boolean = false) {
-    val client = HttpClient(Apache) {
-        install(HttpTimeout) {
+    val simpleJwt = SimpleJwt("leewonjong")
+    install(DefaultHeaders)
+    install(Authentication) {
+        jwt {
+            verifier(simpleJwt.verifier)
+            authSchemes("WonJong")
+            validate {
+                UserIdPrincipal(it.payload.getClaim("token").asString())
+            }
         }
-        install(Auth) {
-        }
-        install(JsonFeature) {
-            serializer = GsonSerializer()
-        }
-        install(Logging) {
-            level = LogLevel.HEADERS
-        }
-        BrowserUserAgent() // install default browser-like user-agent
-        install(UserAgent) { agent = "some user agent" }
     }
-    runBlocking {
-        // Sample for making a HTTP Client request
-        /*
-        val message = client.post<JsonSampleClass> {
-            url("http://127.0.0.1:8080/path/to/endpoint")
-            contentType(ContentType.Application.Json)
-            body = JsonSampleClass(hello = "world")
+    install(CORS) {
+        method(HttpMethod.Options)
+        method(HttpMethod.Get)
+        method(HttpMethod.Post)
+        method(HttpMethod.Put)
+        method(HttpMethod.Delete)
+        method(HttpMethod.Patch)
+        header(HttpHeaders.Authorization)
+        allowCredentials = true
+        anyHost()
+    }
+    install(ContentNegotiation) {
+        gson {
+
         }
-        */
+    }
+
+    install(CallLogging) {
+        level = Level.INFO
+        filter { call -> call.request.path().startsWith("/") }
+    }
+
+    install(StatusPages) {
+        exception<InvalidCredentialsException> { exception ->
+            call.respond(
+                HttpStatusCode.Unauthorized, mapOf(
+                    "isSuccess" to false,
+                    "error" to exception.message
+                )
+            )
+        }
     }
 
     routing {
@@ -54,47 +71,43 @@ fun Application.module(testing: Boolean = false) {
             call.respondText("HELLO WORLD!", contentType = ContentType.Text.Plain)
         }
 
-        get("/html-dsl") {
-            call.respondHtml {
-                body {
-                    h1 { +"HTML" }
-                    ul {
-                        for (n in 1..10) {
-                            li { +"$n" }
-                        }
-                    }
-                }
-            }
+        post("/login") {
+            val post = call.receive<AccountVo>()
+            val user = mockUsers.getOrPut(post.id) { AccountVo(post.id, post.password) }
+            if (user.password != post.password) throw InvalidCredentialsException(
+                ExceptionVo(
+                    code = 1001,
+                    message = "Invalid credentials"
+                )
+            )
+            call.respond(mapOf("token" to simpleJwt.sign(user.id)))
         }
 
-        get("/styles.css") {
-            call.respondCss {
-                body {
-                    backgroundColor = Color.red
-                }
-                p {
-                    fontSize = 2.em
-                }
-                rule("p.myclass") {
-                    color = Color.blue
+        route("/snippet") {
+            get {
+                call.respond(mapOf("snippets" to synchronized(snippets) { snippets.toList() }))
+            }
+            authenticate {
+                post {
+                    val post = call.receive<String>()
+                    val principal = call.principal<UserIdPrincipal>() ?: error("No principal")
+                    snippets += SnippetVo(principal.name, post)
+                    call.respond(mapOf("isSuccess" to true))
                 }
             }
         }
     }
 }
 
-data class JsonSampleClass(val hello: String)
+private val mockUsers = Collections.synchronizedMap(
+    listOf(AccountVo("testId", "testPassword"))
+        .associateBy { it.id }
+        .toMutableMap()
+)
 
-fun FlowOrMetaDataContent.styleCss(builder: CSSBuilder.() -> Unit) {
-    style(type = ContentType.Text.CSS.toString()) {
-        +CSSBuilder().apply(builder).toString()
-    }
-}
-
-fun CommonAttributeGroupFacade.style(builder: CSSBuilder.() -> Unit) {
-    this.style = CSSBuilder().apply(builder).toString().trim()
-}
-
-suspend inline fun ApplicationCall.respondCss(builder: CSSBuilder.() -> Unit) {
-    this.respondText(CSSBuilder().apply(builder).toString(), ContentType.Text.CSS)
-}
+val snippets = Collections.synchronizedList(
+    mutableListOf(
+        SnippetVo(user = "test1", text = "hello"),
+        SnippetVo(user = "test2", text = "world")
+    )
+)
