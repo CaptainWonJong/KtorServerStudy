@@ -5,7 +5,6 @@ buildscript {
     }
     dependencies {
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-        classpath "com.github.jengelman.gradle.plugins:shadow:2.0.1"
     }
 }
 
@@ -17,7 +16,6 @@ apply plugin: 'application'
 group 'com.wonjong.lee'
 version '0.0.1'
 mainClassName = "io.ktor.server.netty.EngineMain"
-
 
 sourceSets {
     main.kotlin.srcDirs = main.java.srcDirs = ['src']
@@ -53,9 +51,6 @@ dependencies {
     testImplementation "io.ktor:ktor-server-tests:$ktor_version"
 }
 
-apply plugin: "com.github.johnrengelman.shadow"
-shadowJar {
-    baseName = 'my-application'
-    classifier = null
-    version = null
-}
+task stage(
+        dependsOn: ['build', 'clean']
+)
