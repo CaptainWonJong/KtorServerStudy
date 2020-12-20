@@ -5,7 +5,7 @@ import com.auth0.jwt.JWTVerifier
 import com.auth0.jwt.algorithms.Algorithm
 
 /**
- * @author leewonjong@doinglab.com
+ * @author CaptainWonJong@gmail.com
  */
 open class SimpleJwt(secret: String) {
     private val algorithm = Algorithm.HMAC256(secret)

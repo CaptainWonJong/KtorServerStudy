@@ -1,10 +1,9 @@
 package com.wonjong.lee
 
+import com.wonjong.lee.config.DatabaseInitializer
 import com.wonjong.lee.config.SimpleJwt
-import com.wonjong.lee.exception.InvalidCredentialsException
-import com.wonjong.lee.model.AccountVo
-import com.wonjong.lee.model.ExceptionVo
-import com.wonjong.lee.model.SnippetVo
+import com.wonjong.lee.routes.users
+import com.wonjong.lee.service.UserService
 import io.ktor.application.*
 import io.ktor.auth.*
 import io.ktor.auth.jwt.*
@@ -15,7 +14,6 @@ import io.ktor.request.*
 import io.ktor.response.*
 import io.ktor.routing.*
 import org.slf4j.event.Level
-import java.util.*
 
 fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
 
@@ -34,80 +32,24 @@ fun Application.module(testing: Boolean = false) {
         }
     }
     install(CORS) {
-        method(HttpMethod.Options)
-        method(HttpMethod.Get)
-        method(HttpMethod.Post)
-        method(HttpMethod.Put)
-        method(HttpMethod.Delete)
-        method(HttpMethod.Patch)
-        header(HttpHeaders.Authorization)
-        allowCredentials = true
         anyHost()
     }
     install(ContentNegotiation) {
         gson {
-
+            setPrettyPrinting()
+            enableComplexMapKeySerialization()
+            setDateFormat(DATE_TIME_FORMAT)
         }
     }
-
     install(CallLogging) {
         level = Level.INFO
         filter { call -> call.request.path().startsWith("/") }
     }
 
-    install(StatusPages) {
-        exception<InvalidCredentialsException> { exception ->
-            call.respond(
-                HttpStatusCode.Unauthorized, mapOf(
-                    "isSuccess" to false,
-                    "error" to exception.message
-                )
-            )
-        }
+    install(Routing) {
+        users(UserService())
     }
-
-    routing {
-        get("/") {
-            call.respondText("HELLO WORLD!", contentType = ContentType.Text.Plain)
-        }
-
-        post("/login") {
-            val post = call.receive<AccountVo>()
-            val user = mockUsers.getOrPut(post.id) { AccountVo(post.id, post.password) }
-            if (user.password != post.password) throw InvalidCredentialsException(
-                ExceptionVo(
-                    code = 1001,
-                    message = "Invalid credentials"
-                )
-            )
-            call.respond(mapOf("token" to simpleJwt.sign(user.id)))
-        }
-
-        route("/snippet") {
-            get {
-                call.respond(mapOf("snippets" to synchronized(snippets) { snippets.toList() }))
-            }
-            authenticate {
-                post {
-                    val post = call.receive<String>()
-                    val principal = call.principal<UserIdPrincipal>() ?: error("No principal")
-                    snippets += SnippetVo(principal.name, post)
-                    call.respond(mapOf("isSuccess" to true))
-                }
-            }
-        }
-    }
+    DatabaseInitializer.init()
 }
 
-private val mockUsers = Collections.synchronizedMap(
-    listOf(AccountVo("testId", "testPassword"))
-        .associateBy { it.id }
-        .toMutableMap()
-)
-
-val snippets = Collections.synchronizedList(
-    mutableListOf(
-        SnippetVo(user = "test1", text = "hello"),
-        SnippetVo(user = "test2", text = "world")
-    )
-)
+internal const val DATE_TIME_FORMAT = "yyyy-MM-dd HH:mm:ss"
